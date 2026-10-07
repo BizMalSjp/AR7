@@ -127,7 +127,7 @@
 
 <script>
 // ==========================================
-// 1. 指操作（1本：移動または回転（ボタンで切替）/ 2本：拡大縮小＋移動 / 3本：移動）
+// 1. 指操作（1本：移動または立体回転 / 2本：拡大縮小＋移動＋ひねり回転 / 3本：移動）
 // ==========================================
 let arObject = null;
 const arObjects = [
@@ -244,6 +244,14 @@ function distance(touches) {
   );
 }
 
+// 2本の指を結ぶ線の角度（画面上の時計回りが正）。
+function touchAngle(touches) {
+  return Math.atan2(
+    touches[1].clientY - touches[0].clientY,
+    touches[1].clientX - touches[0].clientX
+  ) * 180 / Math.PI;
+}
+
 // 今の指の位置と画像の状態を「基準」として記録する
 function startGesture(touches) {
   if (touches.length === 0) { gesture = null; arObject = null; return; }
@@ -256,7 +264,8 @@ function startGesture(touches) {
     count: touches.length,
     center: centroid(touches),
     dist: touches.length >= 2 ? distance(touches) : 0,
-    rotX: rot.x, rotY: rot.y,
+    angle: touches.length >= 2 ? touchAngle(touches) : 0,
+    rotX: rot.x, rotY: rot.y, rotZ: rot.z,
     posX: pos.x, posY: pos.y,
     scaleX: scl.x, scaleY: scl.y
   };
@@ -289,7 +298,7 @@ window.addEventListener('touchmove', function(e) {
     // 1本指（回転モード）：左右の動きでY軸回転、上下の動きでX軸回転
     const newRotX = gesture.rotX + dy * ROTATE_SPEED;
     const newRotY = gesture.rotY + dx * ROTATE_SPEED;
-    gesture.object.setAttribute('rotation', `${newRotX} ${newRotY} 0`);
+    gesture.object.setAttribute('rotation', `${newRotX} ${newRotY} ${gesture.rotZ}`);
     return;
   }
 
@@ -305,6 +314,12 @@ window.addEventListener('touchmove', function(e) {
     const newScaleX = Math.max(0.2, Math.min(5.0, gesture.scaleX * factor));
     const newScaleY = Math.max(0.2, Math.min(5.0, gesture.scaleY * factor));
     gesture.object.setAttribute('scale', `${newScaleX} ${newScaleY} 1`);
+    // ±180度をまたいでも回転方向が飛ばないよう、角度差を正規化する。
+    const delta = touchAngle(e.touches) - gesture.angle;
+    const angleDelta = ((delta + 180) % 360 + 360) % 360 - 180;
+    gesture.object.setAttribute('rotation',
+      `${gesture.rotX} ${gesture.rotY} ${gesture.rotZ - angleDelta}`);
+
   }
 }, { passive: false });
 
