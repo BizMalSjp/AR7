@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>AR4</title>
+  <title>AR7 — うさぎとハロウィン</title>
   <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   <style>
@@ -12,11 +12,38 @@
       overflow: hidden;
       touch-action: none; /* ブラウザ標準のスクロールや引っ張りリフレッシュを禁止 */
     }
+    #object-controls {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      left: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.65);
+      color: white;
+      font-family: sans-serif;
+    }
+    #object-controls button {
+      min-height: 44px;
+      padding: 8px 12px;
+      color: white;
+      background: #333;
+      border: 1px solid #999;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+    #object-controls button[aria-pressed="true"] {
+      background: #1668be;
+      border-color: white;
+    }
+    #operation-hint { flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.5; }
     /* 1本指の動作切り替えボタン */
     #mode-btn {
-      position: fixed;
-      top: 16px;
-      right: 16px;
+      position: static;
       padding: 8px 14px;
       font-size: 14px;
       background-color: rgba(0,0,0,0.5);
@@ -89,7 +116,13 @@
 </head>
 <body>
 
-  <button id="mode-btn">1本指：移動</button>
+  <div id="object-controls" role="group" aria-label="AR画像の操作">
+    <button id="select-rabbit" data-object="rabbit-object" aria-pressed="true">うさぎ</button>
+    <button id="select-halloween" data-object="halloween-object" aria-pressed="false">ハロウィン</button>
+    <button id="mode-btn">1本指：移動</button>
+    <button id="reset-btn">選択画像を戻す</button>
+    <p id="operation-hint" aria-live="polite">操作中：うさぎ ／ 画面を1本指で移動、2本指で拡大・縮小</p>
+  </div>
   <button id="snap-btn">写真を撮る</button>
 
   <div id="preview">
@@ -104,9 +137,11 @@
   <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" screenshot>
     <a-assets>
       <img id="halloween-ar-img" src="halloween-ar.png">
+      <img id="rabbit-ar-img" src="rabbit-ar.png">
     </a-assets>
 
-    <a-image id="ar-object" src="#halloween-ar-img" position="0 0 -4" width="2" height="2"></a-image>
+    <a-image id="rabbit-object" src="#rabbit-ar-img" position="-0.8 0 -4" width="1.2" height="1.798828125"></a-image>
+    <a-image id="halloween-object" src="#halloween-ar-img" position="0.8 0 -4" width="1.4" height="1.4"></a-image>
 
     <a-entity camera></a-entity>
   </a-scene>
@@ -115,7 +150,32 @@
 // ==========================================
 // 1. 指操作（1本：移動または回転（ボタンで切替）/ 2本：拡大縮小＋移動 / 3本：移動）
 // ==========================================
-const arObject = document.getElementById('ar-object');
+let arObject = document.getElementById('rabbit-object');
+const objectButtons = Array.from(document.querySelectorAll('[data-object]'));
+const initialPositions = {
+  'rabbit-object': '-0.8 0 -4',
+  'halloween-object': '0.8 0 -4'
+};
+function updateHint() {
+  const name = arObject.id === 'rabbit-object' ? 'うさぎ' : 'ハロウィン';
+  const action = oneFingerMode === 'move' ? '移動' : '回転';
+  document.getElementById('operation-hint').textContent =
+    `操作中：${name} ／ 画面を1本指で${action}、2本指で拡大・縮小`;
+}
+objectButtons.forEach(button => {
+  button.addEventListener('click', function() {
+    arObject = document.getElementById(button.dataset.object);
+    gesture = null;
+    objectButtons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+    updateHint();
+  });
+});
+document.getElementById('reset-btn').addEventListener('click', function() {
+  gesture = null;
+  arObject.setAttribute('position', initialPositions[arObject.id]);
+  arObject.setAttribute('rotation', '0 0 0');
+  arObject.setAttribute('scale', '1 1 1');
+});
 const sceneEl = document.querySelector('a-scene');
 const OBJECT_Z = -4;      // 画像を置く奥行き（position の3つ目の値と合わせる）
 const ROTATE_SPEED = 0.5; // 1本指で動かした1pxあたりの回転角（度）
@@ -129,6 +189,8 @@ const modeBtn = document.getElementById('mode-btn');
 modeBtn.addEventListener('click', function() {
   oneFingerMode = oneFingerMode === 'move' ? 'rotate' : 'move';
   modeBtn.textContent = oneFingerMode === 'move' ? '1本指：移動' : '1本指：回転';
+  gesture = null;
+  updateHint();
 });
 
 // 画面上の1pxが、画像の位置（奥行き OBJECT_Z）で何単位に当たるかを計算
@@ -160,6 +222,7 @@ function startGesture(touches) {
   const pos = arObject.getAttribute('position') || { x: 0, y: 0, z: OBJECT_Z };
   const scl = arObject.getAttribute('scale') || { x: 1, y: 1, z: 1 };
   gesture = {
+    object: arObject,
     count: touches.length,
     center: centroid(touches),
     dist: touches.length >= 2 ? distance(touches) : 0,
@@ -170,14 +233,14 @@ function startGesture(touches) {
 }
 
 window.addEventListener('touchstart', function(e) {
-  if (e.target.tagName === 'BUTTON') return; // ボタンはそのまま押せるようにする
-  if (e.target.closest('#preview')) return; // プレビュー画面では画像の長押しなどをそのまま使えるようにする
+  if (e.target.closest('button, #object-controls, #preview')) return;
   e.preventDefault();
   startGesture(e.touches); // 指が増えるたびに基準を取り直す
 }, { passive: false });
 
 window.addEventListener('touchmove', function(e) {
-  if (e.target.closest('#preview')) return;
+  if (e.target.closest('button, #object-controls, #preview')) return;
+  if (!gesture) return;
   e.preventDefault(); // ブラウザ標準のスクロールや拡大を止める
   if (!gesture || e.touches.length !== gesture.count) {
     startGesture(e.touches);
@@ -192,7 +255,7 @@ window.addEventListener('touchmove', function(e) {
     // 1本指（回転モード）：左右の動きでY軸回転、上下の動きでX軸回転
     const newRotX = gesture.rotX + dy * ROTATE_SPEED;
     const newRotY = gesture.rotY + dx * ROTATE_SPEED;
-    arObject.setAttribute('rotation', `${newRotX} ${newRotY} 0`);
+    gesture.object.setAttribute('rotation', `${newRotX} ${newRotY} 0`);
     return;
   }
 
@@ -200,22 +263,22 @@ window.addEventListener('touchmove', function(e) {
   const k = unitsPerPixel();
   const newX = gesture.posX + dx * k;
   const newY = gesture.posY - dy * k;
-  arObject.setAttribute('position', `${newX} ${newY} ${OBJECT_Z}`);
+  gesture.object.setAttribute('position', `${newX} ${newY} ${OBJECT_Z}`);
 
   if (gesture.count === 2 && gesture.dist > 0) {
     // 2本指はさらに、指の間隔で拡大縮小
     const factor = distance(e.touches) / gesture.dist;
     const newScaleX = Math.max(0.2, Math.min(5.0, gesture.scaleX * factor));
     const newScaleY = Math.max(0.2, Math.min(5.0, gesture.scaleY * factor));
-    arObject.setAttribute('scale', `${newScaleX} ${newScaleY} 1`);
+    gesture.object.setAttribute('scale', `${newScaleX} ${newScaleY} 1`);
   }
 }, { passive: false });
 
 window.addEventListener('touchend', function(e) {
-  startGesture(e.touches); // 指が減っても、残った指の位置から続けられるようにする
+  if (gesture) startGesture(e.touches); // 操作中の画像だけ、残った指で続ける
 });
-window.addEventListener('touchcancel', function(e) {
-  startGesture(e.touches);
+window.addEventListener('touchcancel', function() {
+  gesture = null;
 });
 
 // ==========================================
