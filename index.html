@@ -119,8 +119,8 @@
       <img id="rabbit-ar-img" src="rabbit-ar.png">
     </a-assets>
 
-    <a-image id="rabbit-object" src="#rabbit-ar-img" position="-0.8 0 -4" width="1.2" height="1.798828125"></a-image>
-    <a-image id="halloween-object" src="#halloween-ar-img" position="0.8 0 -4" width="1.4" height="1.4"></a-image>
+    <a-image id="rabbit-object" src="#rabbit-ar-img" position="-0.8 0 -4" width="1.2" height="1.798828125" material="transparent: true; depthTest: false; side: double"></a-image>
+    <a-image id="halloween-object" src="#halloween-ar-img" position="0.8 0 -4" width="1.4" height="1.4" material="transparent: true; depthTest: false; side: double"></a-image>
 
     <a-entity camera></a-entity>
   </a-scene>
@@ -138,6 +138,33 @@ const sceneEl = document.querySelector('a-scene');
 const raycaster = new AFRAME.THREE.Raycaster();
 const touchPoint = new AFRAME.THREE.Vector2();
 const imagePixels = new WeakMap();
+
+// 2枚を独立した画像レイヤーとして合成し、同じ奥行きや回転で欠けるのを防ぐ。
+arObjects.forEach(object => {
+  function configureLayer() {
+    const mesh = object.getObject3D('mesh');
+    if (!mesh) return;
+    const order = object.id === 'halloween-object' ? 2 : 1;
+    mesh.traverse(node => {
+      if (!node.isMesh) return;
+      node.renderOrder = order;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach(material => {
+        material.transparent = true;
+        material.depthWrite = false;
+        material.depthTest = false;
+        material.side = AFRAME.THREE.DoubleSide;
+        material.needsUpdate = true;
+      });
+    });
+  }
+  object.addEventListener('object3dset', configureLayer);
+  object.addEventListener('materialtextureloaded', configureLayer);
+  object.addEventListener('componentchanged', event => {
+    if (event.detail.name === 'material') configureLayer();
+  });
+  configureLayer();
+});
 
 // 透明な余白では選択しない。重なった画像も、見えている部分で選べる。
 function isVisiblePixel(hit) {
@@ -179,6 +206,8 @@ function pickObject(touch) {
   sceneEl.camera.projectionMatrixInverse.copy(sceneEl.camera.projectionMatrix).invert();
   raycaster.setFromCamera(touchPoint, sceneEl.camera);
   const hits = raycaster.intersectObjects(arObjects.map(el => el.object3D), true);
+  // 画像の描画順と選択順をそろえる。手前の透明部分では下の画像を選べる。
+  hits.sort((a, b) => b.object.renderOrder - a.object.renderOrder || a.distance - b.distance);
   for (const hit of hits) {
     if (!isVisiblePixel(hit)) continue;
     for (let node = hit.object; node; node = node.parent) {
