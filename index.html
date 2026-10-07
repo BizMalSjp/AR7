@@ -12,11 +12,20 @@
       overflow: hidden;
       touch-action: none; /* ブラウザ標準のスクロールや引っ張りリフレッシュを禁止 */
     }
-    /* 1本指の動作切り替えボタン */
-    #mode-btn {
+    #ar-controls {
       position: fixed;
       top: max(12px, env(safe-area-inset-top));
+      left: 12px;
       right: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      z-index: 1000;
+    }
+    /* 1本指の動作切り替え・初期状態へ戻すボタン */
+    #mode-btn, #reset-btn {
+      min-height: 44px;
       padding: 8px 14px;
       font-size: 14px;
       background-color: rgba(0,0,0,0.5);
@@ -89,7 +98,10 @@
 </head>
 <body>
 
-  <button id="mode-btn">1本指：移動</button>
+  <div id="ar-controls" role="group" aria-label="AR画像の操作">
+    <button id="mode-btn">1本指：移動</button>
+    <button id="reset-btn">オブジェクトをもとに戻す</button>
+  </div>
   <button id="snap-btn">写真を撮る</button>
 
   <div id="preview">
@@ -163,6 +175,8 @@ function pickObject(touch) {
   );
   sceneEl.object3D.updateMatrixWorld(true);
   sceneEl.camera.updateMatrixWorld(true);
+  // AR.jsは投影行列を直接変更するため、逆行列もタッチ判定直前に同期する。
+  sceneEl.camera.projectionMatrixInverse.copy(sceneEl.camera.projectionMatrix).invert();
   raycaster.setFromCamera(touchPoint, sceneEl.camera);
   const hits = raycaster.intersectObjects(arObjects.map(el => el.object3D), true);
   for (const hit of hits) {
@@ -189,13 +203,32 @@ modeBtn.addEventListener('click', function() {
   gesture = null;
 });
 
+const initialPositions = {
+  'rabbit-object': '-0.8 0 -4',
+  'halloween-object': '0.8 0 -4'
+};
+document.getElementById('reset-btn').addEventListener('click', function() {
+  gesture = null;
+  arObject = null;
+  arObjects.forEach(object => {
+    object.setAttribute('position', initialPositions[object.id]);
+    object.setAttribute('rotation', '0 0 0');
+    object.setAttribute('scale', '1 1 1');
+  });
+  oneFingerMode = 'move';
+  modeBtn.textContent = '1本指：移動';
+});
+
 // 画面上の1pxが、画像の位置（奥行き OBJECT_Z）で何単位に当たるかを計算
 // → 指の動きと画像の動きがぴったり合う
 function unitsPerPixel() {
   const cam = sceneEl.camera;
-  const fov = cam ? cam.fov : 80;
-  const visibleHeight = 2 * Math.abs(OBJECT_Z) * Math.tan((fov / 2) * Math.PI / 180);
-  return visibleHeight / window.innerHeight;
+  const projectionScale = cam && Math.abs(cam.projectionMatrix.elements[5]);
+  const visibleHeight = projectionScale
+    ? 2 * Math.abs(OBJECT_Z) / projectionScale
+    : 2 * Math.abs(OBJECT_Z) * Math.tan(40 * Math.PI / 180);
+  const rect = sceneEl.canvas && sceneEl.canvas.getBoundingClientRect();
+  return visibleHeight / (rect && rect.height || window.innerHeight);
 }
 
 function centroid(touches) {
